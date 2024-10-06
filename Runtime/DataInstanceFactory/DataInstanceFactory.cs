@@ -9,8 +9,8 @@ using Unity.Collections.LowLevel.Unsafe;
 /// <summary>
 /// Factory class for creating instances of serialized data with flexible serialization options.
 /// </summary>
-/// <typeparam name="TData">The type of data to instantiate.</typeparam>
-public class DataInstanceFactory<TData> : ScriptableObject
+/// <typeparam name="T">The type of data to instantiate.</typeparam>
+public class DataInstanceFactory<T> : ScriptableObject
 {
     // Enum to select the desired serializer
     public enum SerializerType
@@ -30,11 +30,12 @@ public class DataInstanceFactory<TData> : ScriptableObject
         public T Value;
     }
 
-    private static bool s_DataTypeValidated;
+    private static bool dataTypeValidated;
 
-    [SerializeField] private TData m_PrototypeData;
-    [SerializeField] private SerializerType m_SerializerType = SerializerType.JsonUtility;
-    [System.NonSerialized] private string m_CachedJson;
+    [SerializeField] private T prototypeData;
+    [SerializeField] private SerializerType serializerType = SerializerType.JsonUtility;
+    [SerializeField] private bool verbose = false;  // 추가된 필드: 로그 표시 여부
+    [System.NonSerialized] private string cachedJson;
 
     private IJsonSerializer _serializer;
 
@@ -55,13 +56,13 @@ public class DataInstanceFactory<TData> : ScriptableObject
     {
         if (_serializer != null) return;
 
-        if (SerializerFactory.TryGetValue(m_SerializerType, out var serializerConstructor))
+        if (SerializerFactory.TryGetValue(serializerType, out var serializerConstructor))
         {
             _serializer = serializerConstructor();
         }
         else
         {
-            Debug.LogWarning($"Selected serializer '{m_SerializerType}' is not available. Falling back to JsonUtility.", this);
+            LogMessage($"Selected serializer '{serializerType}' is not available. Falling back to JsonUtility.", LogType.Warning);
             _serializer = new UnityJsonSerializer();
         }
     }
@@ -69,29 +70,29 @@ public class DataInstanceFactory<TData> : ScriptableObject
     /// <summary>
     /// Create a new instance of the data.
     /// </summary>
-    public TData CreateDataInstance()
+    public T CreateDataInstance()
     {
         InitializeSerializer();
 
         if (!NeedsSerialization())
-            return m_PrototypeData;
+            return prototypeData;
 
-        if (string.IsNullOrEmpty(m_CachedJson))
+        if (string.IsNullOrEmpty(cachedJson))
         {
-            m_CachedJson = SerializeData(m_PrototypeData);
+            cachedJson = SerializeData(prototypeData);
         }
 
-        return DeserializeData(m_CachedJson);
+        return DeserializeData(cachedJson);
     }
 
     /// <summary>
     /// Utility method to set the PrototypeData from code.
     /// </summary>
-    public void SetPrototypeDataValues(TData data)
+    public void SetPrototypeDataValues(T data)
     {
         if (data == null)
         {
-            Debug.LogError("Cannot set prototype to null.", this);
+            LogMessage("Cannot set prototype to null.", LogType.Error);
             return;
         }
 
@@ -99,24 +100,24 @@ public class DataInstanceFactory<TData> : ScriptableObject
 
         if (NeedsSerialization())
         {
-            m_CachedJson = SerializeData(data);
-            m_PrototypeData = DeserializeData(m_CachedJson);
+            cachedJson = SerializeData(data);
+            prototypeData = DeserializeData(cachedJson);
         }
         else
         {
-            m_CachedJson = null;
-            m_PrototypeData = data;
+            cachedJson = null;
+            prototypeData = data;
         }
     }
 
     /// <summary>
     /// Serialize the data, handling simple types if necessary.
     /// </summary>
-    private string SerializeData(TData data)
+    private string SerializeData(T data)
     {
         if (IsSimpleType())
         {
-            var wrapper = new Wrapper<TData> { Value = data };
+            var wrapper = new Wrapper<T> { Value = data };
             return _serializer.ToJson(wrapper);
         }
         return _serializer.ToJson(data);
@@ -125,14 +126,14 @@ public class DataInstanceFactory<TData> : ScriptableObject
     /// <summary>
     /// Deserialize the data, handling simple types if necessary.
     /// </summary>
-    private TData DeserializeData(string json)
+    private T DeserializeData(string json)
     {
         if (IsSimpleType())
         {
-            var wrapper = _serializer.FromJson<Wrapper<TData>>(json);
+            var wrapper = _serializer.FromJson<Wrapper<T>>(json);
             return wrapper.Value;
         }
-        return _serializer.FromJson<TData>(json);
+        return _serializer.FromJson<T>(json);
     }
 
     /// <summary>
@@ -149,7 +150,7 @@ public class DataInstanceFactory<TData> : ScriptableObject
     private bool IsUnmanaged()
     {
 #if UNITY_COLLECTIONS_LOWLEVEL_UNSAFE
-        return UnsafeUtility.IsUnmanaged<TData>();
+        return UnsafeUtility.IsUnmanaged<T>();
 #else
         return false;
 #endif
@@ -160,7 +161,7 @@ public class DataInstanceFactory<TData> : ScriptableObject
     /// </summary>
     private bool IsString()
     {
-        return typeof(TData) == typeof(string);
+        return typeof(T) == typeof(string);
     }
 
     /// <summary>
@@ -168,7 +169,7 @@ public class DataInstanceFactory<TData> : ScriptableObject
     /// </summary>
     private bool IsUnityObject()
     {
-        return typeof(UnityEngine.Object).IsAssignableFrom(typeof(TData));
+        return typeof(UnityEngine.Object).IsAssignableFrom(typeof(T));
     }
 
     /// <summary>
@@ -176,17 +177,17 @@ public class DataInstanceFactory<TData> : ScriptableObject
     /// </summary>
     private bool IsSimpleType()
     {
-        Type type = typeof(TData);
+        Type type = typeof(T);
         return type.IsPrimitive || type.IsEnum || type == typeof(decimal);
     }
 
     protected virtual void OnEnable()
     {
 #if (UNITY_EDITOR || DEVELOPMENT_BUILD)
-        if (!s_DataTypeValidated)
+        if (!dataTypeValidated)
         {
-            s_DataTypeValidated = true;
-            var type = typeof(TData);
+            dataTypeValidated = true;
+            var type = typeof(T);
 
             if (type.IsPrimitive
                 || type.IsEnum
@@ -197,11 +198,11 @@ public class DataInstanceFactory<TData> : ScriptableObject
 #endif
                 )
             {
-                Debug.LogError($"{type} is not fully compatible with DataInstanceFactory. Consider using a custom serializable container object or struct for complex types.", this);
+                LogMessage($"{type} is not fully compatible with DataInstanceFactory. Consider using a custom serializable container object or struct for complex types.", LogType.Error);
             }
             else if (type.IsAbstract || typeof(UnityEngine.Object).IsAssignableFrom(type))
             {
-                Debug.LogError($"{type} is not supported by DataInstanceFactory. Make sure it's neither abstract nor a UnityEngine.Object.", this);
+                LogMessage($"{type} is not supported by DataInstanceFactory. Make sure it's neither abstract nor a UnityEngine.Object.", LogType.Error);
             }
         }
 #endif
@@ -209,8 +210,8 @@ public class DataInstanceFactory<TData> : ScriptableObject
 
     protected virtual void OnValidate()
     {
-        Debug.Log("Reset m_CachedJson");
-        m_CachedJson = null;
+        LogMessage("Reset cachedJson", LogType.Log);
+        cachedJson = null;
         ValidateSerializerSelection();
     }
 
@@ -219,10 +220,31 @@ public class DataInstanceFactory<TData> : ScriptableObject
     /// </summary>
     private void ValidateSerializerSelection()
     {
-        if (!SerializerFactory.ContainsKey(m_SerializerType))
+        if (!SerializerFactory.ContainsKey(serializerType))
         {
-            Debug.LogWarning($"Selected serializer '{m_SerializerType}' is not available. Falling back to JsonUtility.", this);
-            m_SerializerType = SerializerType.JsonUtility;
+            LogMessage($"Selected serializer '{serializerType}' is not available. Falling back to JsonUtility.", LogType.Warning);
+            serializerType = SerializerType.JsonUtility;
+        }
+    }
+
+    /// <summary>
+    /// Logs a message based on the verbose flag.
+    /// </summary>
+    private void LogMessage(string message, LogType logType)
+    {
+        if (!verbose) return;
+
+        switch (logType)
+        {
+            case LogType.Error:
+                Debug.LogError(message, this);
+                break;
+            case LogType.Warning:
+                Debug.LogWarning(message, this);
+                break;
+            case LogType.Log:
+                Debug.Log(message, this);
+                break;
         }
     }
 }
