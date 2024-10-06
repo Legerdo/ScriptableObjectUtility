@@ -20,4 +20,4 @@ MonoBehaviour:
     doubleValue: 0
     intList: 
     vectorValue: {x: 0, y: 0, z: 0}
-  m_SerializerType: 1
+  m_SerializerType: 0

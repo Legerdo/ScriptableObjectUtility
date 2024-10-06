@@ -148,8 +148,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   dataInstancer: {fileID: 11400000, guid: 0b98224c1c2077c4b86fb6ec3c41aad2, type: 2}
-  numberOfInstances: 5000
-  iterations: 3
+  numberOfInstances: 10000
+  iterations: 5
   sampleSize: 10
   enableDataInstancerBenchmark: 1
   enableSimpleDataObjectBenchmark: 1
