@@ -10,5 +10,12 @@
     "type": "git",
     "url": "https://github.com/Legerdo/ScriptableObjectUtility.git",
     "revision": "main"
-  }
+  },
+  "samples":
+  [
+      {
+          "displayName": "DataInstanceFactory Benchmark",
+          "path": "Samples~/Benchmark"
+      }
+  ]  
 }
