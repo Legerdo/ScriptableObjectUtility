@@ -1,4 +1,5 @@
 // DataInstanceFactory.cs
+
 using System;
 using UnityEngine;
 using System.Collections.Generic;
@@ -6,10 +7,6 @@ using System.Collections.Generic;
 using Unity.Collections.LowLevel.Unsafe;
 #endif
 
-/// <summary>
-/// Factory class for creating instances of serialized data with flexible serialization options.
-/// </summary>
-/// <typeparam name="T">The type of data to instantiate.</typeparam>
 public class DataInstanceFactory<T> : ScriptableObject
 {
     // Enum to select the desired serializer
@@ -34,7 +31,7 @@ public class DataInstanceFactory<T> : ScriptableObject
 
     [SerializeField] private T prototypeData;
     [SerializeField] private SerializerType serializerType = SerializerType.JsonUtility;
-    [SerializeField] private bool verbose = false;  // 추가된 필드: 로그 표시 여부
+    [SerializeField] private bool verbose = false;  
     [System.NonSerialized] private string cachedJson;
 
     private IJsonSerializer _serializer;
@@ -50,6 +47,11 @@ public class DataInstanceFactory<T> : ScriptableObject
         { SerializerType.MemoryPack, () => new MemoryPackSerializer() },
 #endif
     };
+
+    private static bool? _isSimpleType;
+    private static bool? _isUnmanagedType;
+    private static bool? _isStringType;
+    private static bool? _isUnityObjectType;
 
     // Initialization of serializer
     private void InitializeSerializer()
@@ -67,9 +69,6 @@ public class DataInstanceFactory<T> : ScriptableObject
         }
     }
 
-    /// <summary>
-    /// Create a new instance of the data.
-    /// </summary>
     public T CreateDataInstance()
     {
         InitializeSerializer();
@@ -85,9 +84,6 @@ public class DataInstanceFactory<T> : ScriptableObject
         return DeserializeData(cachedJson);
     }
 
-    /// <summary>
-    /// Utility method to set the PrototypeData from code.
-    /// </summary>
     public void SetPrototypeDataValues(T data)
     {
         if (data == null)
@@ -110,9 +106,6 @@ public class DataInstanceFactory<T> : ScriptableObject
         }
     }
 
-    /// <summary>
-    /// Serialize the data, handling simple types if necessary.
-    /// </summary>
     private string SerializeData(T data)
     {
         if (IsSimpleType())
@@ -123,9 +116,6 @@ public class DataInstanceFactory<T> : ScriptableObject
         return _serializer.ToJson(data);
     }
 
-    /// <summary>
-    /// Deserialize the data, handling simple types if necessary.
-    /// </summary>
     private T DeserializeData(string json)
     {
         if (IsSimpleType())
@@ -136,49 +126,43 @@ public class DataInstanceFactory<T> : ScriptableObject
         return _serializer.FromJson<T>(json);
     }
 
-    /// <summary>
-    /// Determines if the data type requires serialization.
-    /// </summary>
     private bool NeedsSerialization()
     {
         return !(IsUnmanaged() || IsString() || IsUnityObject());
     }
 
-    /// <summary>
-    /// Checks if the type is an unmanaged struct.
-    /// </summary>
+    // Optimized type checks with caching
+    private bool IsSimpleType()
+    {
+        if (_isSimpleType.HasValue) return _isSimpleType.Value;
+        var type = typeof(T);
+        _isSimpleType = type.IsPrimitive || type.IsEnum || type == typeof(decimal);
+        return _isSimpleType.Value;
+    }
+
     private bool IsUnmanaged()
     {
 #if UNITY_COLLECTIONS_LOWLEVEL_UNSAFE
-        return UnsafeUtility.IsUnmanaged<T>();
+        if (_isUnmanagedType.HasValue) return _isUnmanagedType.Value;
+        _isUnmanagedType = UnsafeUtility.IsUnmanaged<T>();
+        return _isUnmanagedType.Value;
 #else
         return false;
 #endif
     }
 
-    /// <summary>
-    /// Checks if the type is a string.
-    /// </summary>
     private bool IsString()
     {
-        return typeof(T) == typeof(string);
+        if (_isStringType.HasValue) return _isStringType.Value;
+        _isStringType = typeof(T) == typeof(string);
+        return _isStringType.Value;
     }
 
-    /// <summary>
-    /// Checks if the type is a UnityEngine.Object or its subclass.
-    /// </summary>
     private bool IsUnityObject()
     {
-        return typeof(UnityEngine.Object).IsAssignableFrom(typeof(T));
-    }
-
-    /// <summary>
-    /// Checks if the type is a simple primitive type.
-    /// </summary>
-    private bool IsSimpleType()
-    {
-        Type type = typeof(T);
-        return type.IsPrimitive || type.IsEnum || type == typeof(decimal);
+        if (_isUnityObjectType.HasValue) return _isUnityObjectType.Value;
+        _isUnityObjectType = typeof(UnityEngine.Object).IsAssignableFrom(typeof(T));
+        return _isUnityObjectType.Value;
     }
 
     protected virtual void OnEnable()
@@ -187,25 +171,20 @@ public class DataInstanceFactory<T> : ScriptableObject
         if (!dataTypeValidated)
         {
             dataTypeValidated = true;
-            var type = typeof(T);
-
-            if (type.IsPrimitive
-                || type.IsEnum
-                || type.IsArray
-                || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
-#if USE_NEWTONSOFT_JSON || USE_MEMORYPACK
-                || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>))
-#endif
-                )
-            {
-                LogMessage($"{type} is not fully compatible with DataInstanceFactory. Consider using a custom serializable container object or struct for complex types.", LogType.Error);
-            }
-            else if (type.IsAbstract || typeof(UnityEngine.Object).IsAssignableFrom(type))
-            {
-                LogMessage($"{type} is not supported by DataInstanceFactory. Make sure it's neither abstract nor a UnityEngine.Object.", LogType.Error);
-            }
+            ValidateDataType();
         }
 #endif
+    }
+
+    private void ValidateDataType()
+    {
+        var type = typeof(T);
+
+        if (type.IsPrimitive || type.IsEnum || type.IsArray || 
+            (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>)))
+        {
+            LogMessage($"{type} is not fully compatible with DataInstanceFactory.", LogType.Error);
+        }
     }
 
     protected virtual void OnValidate()
@@ -215,9 +194,6 @@ public class DataInstanceFactory<T> : ScriptableObject
         ValidateSerializerSelection();
     }
 
-    /// <summary>
-    /// Validates if the selected serializer is available based on defined symbols.
-    /// </summary>
     private void ValidateSerializerSelection()
     {
         if (!SerializerFactory.ContainsKey(serializerType))
@@ -227,9 +203,6 @@ public class DataInstanceFactory<T> : ScriptableObject
         }
     }
 
-    /// <summary>
-    /// Logs a message based on the verbose flag.
-    /// </summary>
     private void LogMessage(string message, LogType logType)
     {
         if (!verbose) return;
